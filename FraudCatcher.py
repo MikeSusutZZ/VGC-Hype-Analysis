@@ -34,10 +34,10 @@ filtered_tournaments = [
     if tournament['regulation'] == f"Scarlet & Violet - Regulation {regulation_letter.upper()}"
 ]
 
-# Step 7: Dictionary to store cumulative advancement rates, count, and total usages for each Pokémon
-pokemon_advancement_data = {}
+# Step 7: Dictionary to store total usages before and after dividing participants by 4
+pokemon_usage_data = {}
 
-# Step 8: For each tournament, fetch detailed info and filter Pokémon
+# Step 8: For each tournament, fetch detailed info and accumulate usage data
 for tournament in filtered_tournaments:
     print(f"Analyzing {tournament['name']}...")
 
@@ -51,40 +51,44 @@ for tournament in filtered_tournaments:
         if pokemon['appearances'] >= 10
     ]
 
-    # Step 10: Integer divide the number of participants by 4
+    # Step 10: Accumulate total usages before dividing participants by 4
+    for pokemon in valid_pokemon:
+        if pokemon['pokemon'] not in pokemon_usage_data:
+            pokemon_usage_data[pokemon['pokemon']] = {
+                'total_usage_before': 0,
+                'total_usage_after': 0
+            }
+        pokemon_usage_data[pokemon['pokemon']]['total_usage_before'] += pokemon['appearances']
+
+    # Step 11: Integer divide the number of participants by 4
     participants_divided = tournament['players'] // 4
 
-    # Step 11: Make a new API call with the divided participants
+    # Step 12: Make a new API call with the divided participants
     advancement_response = requests.get(f'https://labmaus-website-b7a5f5f01a05.herokuapp.com/api/tournaments/{tournament_id}/{participants_divided}?language=en')
     advancement_details = advancement_response.json()
 
-    # Step 12: Match and accumulate advancement rates and usages
+    # Step 13: Accumulate total usages after taking top 25% cut
     for adv_pokemon in advancement_details['pokemon']:
-        for pokemon in valid_pokemon:
-            if pokemon['pokemon'] == adv_pokemon['pokemon']:
-                if pokemon['pokemon'] not in pokemon_advancement_data:
-                    pokemon_advancement_data[pokemon['pokemon']] = {
-                        'total_advancement': 0.0,
-                        'count': 0,
-                        'total_usage': 0
-                    }
-                pokemon_advancement_data[pokemon['pokemon']]['total_advancement'] += float(adv_pokemon['advance_rate'].strip('%'))
-                pokemon_advancement_data[pokemon['pokemon']]['count'] += 1
-                pokemon_advancement_data[pokemon['pokemon']]['total_usage'] += pokemon['appearances']
+        if adv_pokemon['pokemon'] in pokemon_usage_data:
+            pokemon_usage_data[adv_pokemon['pokemon']]['total_usage_after'] += adv_pokemon['appearances']
 
-# Step 13: Calculate and subtract 25 from average advancement rates
-adjusted_advancement_data = {}
-for pokemon_name, data in pokemon_advancement_data.items():
-    average_advancement_rate = data['total_advancement'] / data['count']
-    adjusted_advancement_data[pokemon_name] = {
-        'adjusted_rate': average_advancement_rate - 25,
-        'total_usage': data['total_usage']
+# Step 14: Calculate the ratio, subtract 25, and store the results
+adjusted_usage_data = {}
+for pokemon_name, data in pokemon_usage_data.items():
+    if data['total_usage_after'] > 0:  # Avoid division by zero
+        ratio = (data['total_usage_after'] / data['total_usage_before']) * 100 - 25
+    else:
+        ratio = 0
+    adjusted_usage_data[pokemon_name] = {
+        'adjusted_ratio': ratio,
+        'total_usage_before': data['total_usage_before'],
+        'total_usage_after': data['total_usage_after']
     }
 
-# Step 14: Sort the Pokémon by adjusted advancement rates in descending order
-sorted_pokemon = sorted(adjusted_advancement_data.items(), key=lambda item: item[1]['total_usage'], reverse=True)
+# Step 15: Sort the Pokémon by adjusted ratio in descending order
+sorted_pokemon = sorted(adjusted_usage_data.items(), key=lambda item: item[1]['total_usage_before'], reverse=True)
 
-# Step 15: Print the sorted Pokémon with their adjusted advancement rates and total usages
-print("\nAdjusted Advancement Rates (after subtracting 25) and Total Usages:")
+# Step 16: Print the sorted Pokémon with their adjusted ratios and total usages
+print("\nAdjusted Usage Ratios")
 for pokemon_name, data in sorted_pokemon:
-    print(f"{pokemon_name}: {data['adjusted_rate']:.2f}%  ---  Total Usage: {data['total_usage']}")
+    print(f"{pokemon_name}: {data['adjusted_ratio']:.2f}% (Total: {data['total_usage_before']}, Top 25%: {data['total_usage_after']})")
